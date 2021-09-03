@@ -1042,13 +1042,14 @@ IAsyncAction RNFSManager::ProcessUploadRequestAsync(RN::ReactPromise<RN::JSValue
 {
     try
     {
+        bool streamOnly = options["binaryStreamOnly"].AsBoolean();
         winrt::hstring boundary{ L"-----" };
         std::string toUrl{ options["toUrl"].AsString() };
         std::wstring URLForURI(toUrl.begin(), toUrl.end());
         Uri uri{ URLForURI };
 
         winrt::Windows::Web::Http::HttpRequestMessage requestMessage{ httpMethod, uri };
-        winrt::Windows::Web::Http::HttpMultipartFormDataContent requestContent{ boundary };
+        winrt::Windows::Web::Http::HttpMultipartFormDataContent multipartContent{ boundary };
 
         auto const& headers{ options["headers"].AsObject() };
         
@@ -1056,7 +1057,7 @@ IAsyncAction RNFSManager::ProcessUploadRequestAsync(RN::ReactPromise<RN::JSValue
         {
             if (!requestMessage.Headers().TryAppendWithoutValidation(winrt::to_hstring(entry.first), winrt::to_hstring(entry.second.AsString())))
             {
-                requestContent.Headers().TryAppendWithoutValidation(winrt::to_hstring(entry.first), winrt::to_hstring(entry.second.AsString()));
+                multipartContent.Headers().TryAppendWithoutValidation(winrt::to_hstring(entry.first), winrt::to_hstring(entry.second.AsString()));
             }
         }
 
@@ -1068,7 +1069,7 @@ IAsyncAction RNFSManager::ProcessUploadRequestAsync(RN::ReactPromise<RN::JSValue
             attempt << "; " << field.first << "=" << field.second.AsString();
         }
 
-        requestContent.Headers().ContentDisposition(Headers::HttpContentDispositionHeaderValue::Parse(winrt::to_hstring(attempt.str())));
+        multipartContent.Headers().ContentDisposition(Headers::HttpContentDispositionHeaderValue::Parse(winrt::to_hstring(attempt.str())));
 
         m_reactContext.CallJSFunction(L"RCTDeviceEventEmitter", L"emit", L"UploadBegin",
             RN::JSValueObject{
@@ -1093,8 +1094,13 @@ IAsyncAction RNFSManager::ProcessUploadRequestAsync(RN::ReactPromise<RN::JSValue
                 auto properties{ co_await file.GetBasicPropertiesAsync() };
 
                 HttpBufferContent entry{ co_await FileIO::ReadBufferAsync(file) };
-                requestContent.Add(entry, name, filename);
-
+                if (streamOnly) {
+                    winrt::Windows::Web::Http::HttpBufferContent requestContent{ entry };
+                    requestMessage.Content(requestContent);
+                }
+                else {
+                    multipartContent.Add(entry, name, filename);
+                }
                 totalUploaded += properties.Size();
                 m_reactContext.CallJSFunction(L"RCTDeviceEventEmitter", L"emit", L"UploadProgress",
                     RN::JSValueObject{
@@ -1108,8 +1114,9 @@ IAsyncAction RNFSManager::ProcessUploadRequestAsync(RN::ReactPromise<RN::JSValue
                 continue;
             }
         }
-
-        requestMessage.Content(requestContent);
+        if (!streamOnly) {
+            requestMessage.Content(multipartContent);
+        }
         HttpResponseMessage response = co_await m_httpClient.SendRequestAsync(requestMessage, HttpCompletionOption::ResponseHeadersRead);
 
         auto statusCode{ std::to_string(int(response.StatusCode())) };
