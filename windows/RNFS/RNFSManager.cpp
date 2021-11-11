@@ -915,16 +915,34 @@ catch (const hresult_error& ex)
     }
 }
 
+std::wstring utf8toUtf16(const std::string& str)
+{
+    if (str.empty())
+        return std::wstring();
+
+    size_t charsNeeded = ::MultiByteToWideChar(CP_UTF8, 0,
+        str.data(), (int)str.size(), NULL, 0);
+    if (charsNeeded == 0)
+        throw std::runtime_error("Failed converting UTF-8 string to UTF-16");
+
+    std::vector<wchar_t> buffer(charsNeeded);
+    int charsConverted = ::MultiByteToWideChar(CP_UTF8, 0,
+        str.data(), (int)str.size(), &buffer[0], buffer.size());
+    if (charsConverted == 0)
+        throw std::runtime_error("Failed converting UTF-8 string to UTF-16");
+
+    return std::wstring(&buffer[0], charsConverted);
+}
 
 void RNFSManager::splitPath(const std::string& fullPath, winrt::hstring& directoryPath, winrt::hstring& fileName) noexcept
 {
-    std::filesystem::path path(fullPath);
+    std::wstring wstr = utf8toUtf16(fullPath);
+    std::filesystem::path path(wstr);
     path.make_preferred();
 
     directoryPath = path.has_parent_path() ? winrt::to_hstring(path.parent_path().c_str()) : L"";
     fileName = path.has_filename() ? winrt::to_hstring(path.filename().c_str()) : L"";
 }
-
 
 IAsyncAction RNFSManager::ProcessDownloadRequestAsync(RN::ReactPromise<RN::JSValueObject> promise,
     winrt::Windows::Web::Http::HttpRequestMessage request, std::wstring_view filePath, int32_t jobId, int64_t progressInterval, int64_t progressDivider)
