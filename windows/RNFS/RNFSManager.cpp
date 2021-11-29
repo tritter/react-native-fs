@@ -101,6 +101,25 @@ IAsyncAction TaskCancellationManager::Add(JobId jobId, IAsyncAction const& async
     return asyncAction;
 }
 
+std::wstring utf8toUtf16(const std::string& str)
+{
+    if (str.empty())
+        return std::wstring();
+
+    size_t charsNeeded = ::MultiByteToWideChar(CP_UTF8, 0,
+        str.data(), (int)str.size(), NULL, 0);
+    if (charsNeeded == 0)
+        throw std::runtime_error("Failed converting UTF-8 string to UTF-16");
+
+    std::vector<wchar_t> buffer(charsNeeded);
+    int charsConverted = ::MultiByteToWideChar(CP_UTF8, 0,
+        str.data(), (int)str.size(), &buffer[0], buffer.size());
+    if (charsConverted == 0)
+        throw std::runtime_error("Failed converting UTF-8 string to UTF-16");
+
+    return std::wstring(&buffer[0], charsConverted);
+}
+
 void TaskCancellationManager::Cancel(JobId jobId) noexcept
 {
     // The destructor of the token does the cancellation. We must do it outside of lock.
@@ -182,25 +201,6 @@ void RNFSManager::ConstantsViaConstantsProvider(RN::ReactConstantProvider& const
     // Filetypes
     constants.Add(L"RNFSFileTypeRegular", 0);
     constants.Add(L"RNFSFileTypeDirectory", 1);
-}
-
-std::wstring utf8toUtf16(const std::string& str)
-{
-    if (str.empty())
-        return std::wstring();
-
-    size_t charsNeeded = ::MultiByteToWideChar(CP_UTF8, 0,
-        str.data(), (int)str.size(), NULL, 0);
-    if (charsNeeded == 0)
-        throw std::runtime_error("Failed converting UTF-8 string to UTF-16");
-
-    std::vector<wchar_t> buffer(charsNeeded);
-    int charsConverted = ::MultiByteToWideChar(CP_UTF8, 0,
-        str.data(), (int)str.size(), &buffer[0], buffer.size());
-    if (charsConverted == 0)
-        throw std::runtime_error("Failed converting UTF-8 string to UTF-16");
-
-    return std::wstring(&buffer[0], charsConverted);
 }
 
 winrt::fire_and_forget RNFSManager::mkdir(std::string directory, RN::JSValueObject options, RN::ReactPromise<void> promise) noexcept
@@ -764,6 +764,7 @@ winrt::fire_and_forget RNFSManager::downloadFile(RN::JSValueObject options, RN::
         //Filepath
         std::wstring wstr = utf8toUtf16(options["toFile"].AsString());
         std::filesystem::path path(wstr);
+
         path.make_preferred();
         if (path.filename().empty())
         {
