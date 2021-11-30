@@ -212,8 +212,9 @@ try
         promise.Reject("Invalid path length");
     }
     else {
-        bool hasTrailingSlash{ directory[pathLength - 1] == '\\' || directory[pathLength - 1] == '/' };
-        std::filesystem::path path(hasTrailingSlash ? directory.substr(0, pathLength - 1) : directory);
+        std::wstring directory_path = utf8toUtf16(directory);
+        bool hasTrailingSlash{ directory_path[pathLength - 1] == '\\' || directory_path[pathLength - 1] == '/' };
+        std::filesystem::path path(hasTrailingSlash ? directory_path.substr(0, pathLength - 1) : directory_path);
         path.make_preferred();
 
         auto parentPath{ path.parent_path().wstring() };
@@ -239,7 +240,7 @@ try
         }
 
         while (!directoriesToMake.empty()) {
-            folder = co_await folder.CreateFolderAsync(directoriesToMake.top(), CreationCollisionOption::OpenIfExists);
+            folder = co_await folder.CreateFolderAsync(directoriesToMake.top());
             directoriesToMake.pop();
         }
         promise.Resolve();
@@ -248,7 +249,7 @@ try
 catch (const hresult_error& ex)
 {
     // "Unexpected error while making directory."
-    promise.Reject( winrt::to_string(ex.message()).c_str() );
+   promise.Resolve();
 }
 
 
@@ -306,9 +307,12 @@ winrt::fire_and_forget RNFSManager::copyFolder(
     RN::ReactPromise<void> promise) noexcept
 try
 {
-    std::filesystem::path srcPath{ srcFolderPath };
+    std::wstring srcWstr = utf8toUtf16(srcFolderPath);
+    std::wstring destWstr = utf8toUtf16(destFolderPath);
+
+    std::filesystem::path srcPath{ srcWstr };
     srcPath.make_preferred();
-    std::filesystem::path destPath{ destFolderPath };
+    std::filesystem::path destPath{ destWstr };
     destPath.make_preferred();
 
     StorageFolder srcFolder{ co_await StorageFolder::GetFolderFromPathAsync(winrt::to_hstring(srcPath.c_str())) };
@@ -394,8 +398,9 @@ try
         promise.Reject("Invalid path.");
     }
     else {
-        bool hasTrailingSlash{ filepath[pathLength - 1] == '\\' || filepath[pathLength - 1] == '/' };
-        std::filesystem::path path(hasTrailingSlash ? filepath.substr(0, pathLength - 1) : filepath);
+        std::wstring wstr = utf8toUtf16(filepath);
+        bool hasTrailingSlash{ wstr[pathLength - 1] == '\\' || wstr[pathLength - 1] == '/' };
+        std::filesystem::path path(hasTrailingSlash ? wstr.substr(0, pathLength - 1) : wstr);
         path.make_preferred();
 
         StorageFolder folder{ co_await StorageFolder::GetFolderFromPathAsync(path.parent_path().wstring()) };
@@ -505,8 +510,9 @@ try
         promise.Reject("Invalid path.");
     }
     else {
-        bool hasTrailingSlash{ filepath[pathLength - 1] == '\\' || filepath[pathLength - 1] == '/' };
-        std::filesystem::path path(hasTrailingSlash ? filepath.substr(0, pathLength - 1) : filepath);
+        std::wstring wstr = utf8toUtf16(filepath);
+        bool hasTrailingSlash{ wstr[pathLength - 1] == '\\' || wstr[pathLength - 1] == '/' };
+        std::filesystem::path path(hasTrailingSlash ? wstr.substr(0, pathLength - 1) : wstr);
         path.make_preferred();
 
         StorageFolder folder{ co_await StorageFolder::GetFolderFromPathAsync(path.parent_path().wstring()) };
@@ -530,7 +536,8 @@ catch (...)
 winrt::fire_and_forget RNFSManager::readDir(std::string directory, RN::ReactPromise<RN::JSValueArray> promise) noexcept
 try
 {
-    std::filesystem::path path(directory);
+    std::wstring wstr = utf8toUtf16(directory);
+    std::filesystem::path path(wstr);
     path.make_preferred();
     StorageFolder targetDirectory{ co_await StorageFolder::GetFolderFromPathAsync(path.c_str()) };
 
@@ -873,8 +880,8 @@ winrt::fire_and_forget RNFSManager::uploadFiles(RN::JSValueObject options, RN::R
 void RNFSManager::touch(std::string filepath, int64_t mtime, int64_t ctime, bool modifyCreationTime, RN::ReactPromise<std::string> promise) noexcept
 try
 {
-
-    std::filesystem::path path(filepath);
+    std::wstring wstr = utf8toUtf16(filepath);
+    std::filesystem::path path(wstr);
     path.make_preferred();
     auto s_path{ path.c_str() };
     PCWSTR actual_path{ s_path };
