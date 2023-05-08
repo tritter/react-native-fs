@@ -783,6 +783,7 @@ winrt::fire_and_forget RNFSManager::downloadFile(RN::JSValueObject options, RN::
         //URL
         std::string fromURLString{ options["fromUrl"].AsString() };
         std::wstring URLForURI(fromURLString.begin(), fromURLString.end());
+
         Uri uri{ URLForURI };
 
         //Headers
@@ -959,22 +960,23 @@ IAsyncAction RNFSManager::ProcessDownloadRequestAsync(RN::ReactPromise<RN::JSVal
     try
     {
         HttpResponseMessage response = co_await m_httpClient.SendRequestAsync(request, HttpCompletionOption::ResponseHeadersRead);
-        IReference<uint64_t> contentLength{ response.Content().Headers().ContentLength() };
+        RN::JSValueObject headersMap;
+        for (auto const& header : response.Headers())
         {
-            RN::JSValueObject headersMap;
-            for (auto const& header : response.Headers())
-            {
-                headersMap[to_string(header.Key())] = to_string(header.Value());
-            }
-
-            m_reactContext.CallJSFunction(L"RCTDeviceEventEmitter", L"emit", L"DownloadBegin",
-                RN::JSValueObject{
-                    { "jobId", jobId },
-                    { "statusCode", (int)response.StatusCode() },
-                    { "contentLength", contentLength.Type() == PropertyType::UInt64 ? RN::JSValue(contentLength.Value()) : RN::JSValue{nullptr} },
-                    { "headers", std::move(headersMap) },
-                });
+            headersMap[to_string(header.Key())] = to_string(header.Value());
         }
+        IReference<uint64_t> contentLength{ (uint64_t)0 };
+        winrt::hstring contentLengthKey{ L"Content-Length" };
+        if (response.Content().Headers().HasKey(contentLengthKey)) {
+            contentLength = { response.Content().Headers().ContentLength() };
+        }
+        m_reactContext.CallJSFunction(L"RCTDeviceEventEmitter", L"emit", L"DownloadBegin",
+            RN::JSValueObject{
+                { "jobId", jobId },
+                { "statusCode", (int)response.StatusCode() },
+                { "contentLength", contentLength.Type() == PropertyType::UInt64 ? RN::JSValue(contentLength.Value()) : RN::JSValue{nullptr} },
+                { "headers", std::move(headersMap) },
+            });
 
         uint64_t totalRead{ 0 };
 
@@ -1060,6 +1062,9 @@ IAsyncAction RNFSManager::ProcessDownloadRequestAsync(RN::ReactPromise<RN::JSVal
     catch (const hresult_error& ex)
     {
         promise.Reject(winrt::to_string(ex.message()).c_str());
+    }
+    catch(...) {
+        promise.Reject("Unknown download error.");
     }
 }
 
@@ -1169,4 +1174,3 @@ IAsyncAction RNFSManager::ProcessUploadRequestAsync(RN::ReactPromise<RN::JSValue
         promise.Reject(winrt::to_string(ex.message()).c_str());
     }
 }
-
