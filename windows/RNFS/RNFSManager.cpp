@@ -790,7 +790,7 @@ winrt::fire_and_forget RNFSManager::downloadFile(RN::JSValueObject options, RN::
         auto const& headers{ options["headers"].AsObject() };
 
         //Progress Interval
-        auto progressInterval{ options["progressInterval"].AsInt64() };
+        auto progressInterval{ 100 };
 
         //Progress Divider
         auto progressDivider{ options["progressDivider"].AsInt64() };
@@ -1074,6 +1074,9 @@ IAsyncAction RNFSManager::ProcessUploadRequestAsync(RN::ReactPromise<RN::JSValue
 {
     try
     {
+        int64_t initialProgressTime{ winrt::clock::now().time_since_epoch().count() / 10000 };
+        int64_t currentProgressTime;
+        auto progressInterval{ 100 };
         bool streamOnly = options["binaryStreamOnly"].AsBoolean();
         winrt::hstring boundary{ L"-----" };
         std::string toUrl{ options["toUrl"].AsString() };
@@ -1133,7 +1136,6 @@ IAsyncAction RNFSManager::ProcessUploadRequestAsync(RN::ReactPromise<RN::JSValue
                 else {
                     multipartContent.Add(entry, name, filename);
                 }
-                totalUploaded += properties.Size();
                 m_reactContext.CallJSFunction(L"RCTDeviceEventEmitter", L"emit", L"UploadProgress",
                     RN::JSValueObject{
                         { "jobId", jobId },
@@ -1149,12 +1151,41 @@ IAsyncAction RNFSManager::ProcessUploadRequestAsync(RN::ReactPromise<RN::JSValue
         if (!streamOnly) {
             requestMessage.Content(multipartContent);
         }
-        HttpResponseMessage response = co_await m_httpClient.SendRequestAsync(requestMessage, HttpCompletionOption::ResponseHeadersRead);
+        auto uploadTask = m_httpClient.SendRequestAsync(requestMessage, HttpCompletionOption::ResponseHeadersRead);
+        //winrt::Windows::Foundation::
+          //  IAsyncOperationWithProgress<winrt::Windows::Web::Http::HttpResponseMessage, winrt::Windows::Web::Http::HttpProgress>
+        uploadTask.Progress(winrt::Windows::Foundation::AsyncOperationProgressHandler<winrt::Windows::Web::Http::HttpResponseMessage, winrt::Windows::Web::Http::HttpProgress>(
+            [this, &jobId, &totalUploadSize, &totalUploaded, &currentProgressTime, &initialProgressTime, &progressInterval]
+            (Windows::Foundation::IAsyncOperationWithProgress<winrt::Windows::Web::Http::HttpResponseMessage, winrt::Windows::Web::Http::HttpProgress> handler,
+                winrt::Windows::Web::Http::HttpProgress progress) {
 
+                    uint64_t newWrite = totalUploaded + progress.BytesSent;
+                    totalUploaded = newWrite;
+                    currentProgressTime = winrt::clock::now().time_since_epoch().count() / 10000;
+                    if (currentProgressTime - initialProgressTime >= progressInterval)
+                    {
+                        m_reactContext.CallJSFunction(L"RCTDeviceEventEmitter", L"emit", L"UploadProgress",
+                            RN::JSValueObject{
+                            { "jobId", jobId },
+                            { "totalBytesExpectedToSend", totalUploadSize },   // The total number of bytes that will be sent to the server
+                            { "totalBytesSent", totalUploaded },
+                            });
+                        initialProgressTime = winrt::clock::now().time_since_epoch().count() / 10000;
+                    }
+
+                    
+            }
+        ));
+        HttpResponseMessage response = co_await uploadTask;
         auto statusCode{ std::to_string(int(response.StatusCode())) };
         auto resultHeaders{ winrt::to_string(response.Headers().ToString()) };
         auto resultContent{ winrt::to_string(co_await response.Content().ReadAsStringAsync()) };
-
+        m_reactContext.CallJSFunction(L"RCTDeviceEventEmitter", L"emit", L"UploadProgress",
+            RN::JSValueObject{
+            { "jobId", jobId },
+            { "totalBytesExpectedToSend", totalUploadSize },   // The total number of bytes that will be sent to the server
+            { "totalBytesSent", totalUploadSize },
+            });
         promise.Resolve(RN::JSValueObject
             {
                 { "jobId", jobId },
