@@ -1127,11 +1127,9 @@ IAsyncAction RNFSManager::ProcessUploadRequestAsync(RN::ReactPromise<RN::JSValue
                 StorageFolder folder{ co_await StorageFolder::GetFolderFromPathAsync(directoryPath) };
                 StorageFile file{ co_await folder.GetFileAsync(fileName) };
                 auto properties{ co_await file.GetBasicPropertiesAsync() };
-
-                HttpBufferContent entry{ co_await FileIO::ReadBufferAsync(file) };
+                HttpStreamContent entry { co_await file.OpenReadAsync() };
                 if (streamOnly) {
-                    winrt::Windows::Web::Http::HttpBufferContent requestContent{ entry };
-                    requestMessage.Content(requestContent);
+                    requestMessage.Content(entry);
                 }
                 else {
                     multipartContent.Add(entry, name, filename);
@@ -1152,14 +1150,12 @@ IAsyncAction RNFSManager::ProcessUploadRequestAsync(RN::ReactPromise<RN::JSValue
             requestMessage.Content(multipartContent);
         }
         auto uploadTask = m_httpClient.SendRequestAsync(requestMessage, HttpCompletionOption::ResponseHeadersRead);
-        //winrt::Windows::Foundation::
-          //  IAsyncOperationWithProgress<winrt::Windows::Web::Http::HttpResponseMessage, winrt::Windows::Web::Http::HttpProgress>
         uploadTask.Progress(winrt::Windows::Foundation::AsyncOperationProgressHandler<winrt::Windows::Web::Http::HttpResponseMessage, winrt::Windows::Web::Http::HttpProgress>(
             [this, &jobId, &totalUploadSize, &totalUploaded, &currentProgressTime, &initialProgressTime, &progressInterval]
             (Windows::Foundation::IAsyncOperationWithProgress<winrt::Windows::Web::Http::HttpResponseMessage, winrt::Windows::Web::Http::HttpProgress> handler,
                 winrt::Windows::Web::Http::HttpProgress progress) {
 
-                    uint64_t newWrite = totalUploaded + progress.BytesSent;
+                    uint64_t newWrite = progress.BytesSent;
                     totalUploaded = newWrite;
                     currentProgressTime = winrt::clock::now().time_since_epoch().count() / 10000;
                     if (currentProgressTime - initialProgressTime >= progressInterval)
@@ -1168,7 +1164,7 @@ IAsyncAction RNFSManager::ProcessUploadRequestAsync(RN::ReactPromise<RN::JSValue
                             RN::JSValueObject{
                             { "jobId", jobId },
                             { "totalBytesExpectedToSend", totalUploadSize },   // The total number of bytes that will be sent to the server
-                            { "totalBytesSent", totalUploaded },
+                            { "totalBytesSent", progress.BytesSent },
                             });
                         initialProgressTime = winrt::clock::now().time_since_epoch().count() / 10000;
                     }
